@@ -1,0 +1,113 @@
+---
+title: "Prediction Assignment Writeup"
+output: html_document
+date: '2022-05-21'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r echo=FALSE}
+library(caret)
+library(leaps)
+library(mlbench)
+library(MASS)
+library(gridExtra)
+```
+
+## Abstract
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. Our goal is to predict the manner in which they did the exercise.
+
+### Data Cleaning & Subsetting
+
+We load the "train" and "test" data from the files^[http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har.], we drop unnecessary columns, then we create the train and test subsets.
+```{r}
+set.seed(121)
+train <- read.csv("pml-training.csv", na.strings=c("", " ","NA"))
+test <- read.csv("pml-testing.csv", na.strings=c("", " ","NA"))
+
+train$classe <- as.factor(train$classe)
+#test$classe <- as.factor(test$classe)
+
+f <-names(test[,colMeans(is.na(test))==0])[8:59]
+train<- train[,c(f,"classe")]
+test<-test[,c(f,"problem_id")]
+#test<-test[,c(f,"problem_id")]
+
+inTrain<- createDataPartition(train$classe, p=0.75, list=FALSE)
+train_data<- train[inTrain, ]
+test_data<- train[-inTrain, ]
+```
+
+We calculate the covariance matrix and delete the columns with a high correlation coefficient.
+```{r}
+n <- ncol(train_data)-1
+correlationMatrix <- cor(train_data[,1:n])
+highlyCorrelated <- findCorrelation(correlationMatrix,cutoff=0.5)
+train_data_uncor <- train_data[-highlyCorrelated]
+test_data_uncor <- test_data[-highlyCorrelated]
+```
+
+### ML Modeling
+
+We will be using the fallowing models:
+```{r}
+control <- trainControl(method="cv", number=10)
+
+m1 <- train(classe ~., data = train_data_uncor,
+            method = "lda",
+            trControl = control,
+            metric = "Accuracy", 
+)
+
+m2 <- train(classe ~., data = train_data_uncor,
+            method = "rf",
+            trControl = control,
+            metric = "Accuracy", 
+)
+
+m3 <- train(classe ~., data = train_data_uncor,
+            method = "gbm",
+            trControl = control,
+            metric = "Accuracy",
+            verbose = FALSE
+)
+```
+
+Here are the result:
+
+```{r}
+m1_pred <- predict(m1, newdata=test_data_uncor)
+m1_conf<- confusionMatrix(m1_pred, test_data_uncor$classe)
+m1_accu <- m1_conf$overall[1]
+
+m2_pred <- predict(m2, newdata=test_data_uncor)
+m2_conf<- confusionMatrix(m2_pred, test_data_uncor$classe)
+m2_accu <- m2_conf$overall[1]
+
+m3_pred <- predict(m3, newdata=test_data_uncor)
+m3_conf<- confusionMatrix(m3_pred, test_data_uncor$classe)
+m3_accu <- m3_conf$overall[1]
+
+results <- data.frame("ML Algo" = c("Linear", "Random Forest", "Gradient Boosting"), "Accuracy" = c(signif(m1_accu, digits = 3),
+                                     signif(m2_accu, digits = 3),
+                                     signif(m3_accu, digits = 3)))
+grid.table(results)
+```
+
+
+### ML Testing
+
+Here are the results after running the ML algorithms on the provided test data:
+
+```{r}
+final_res <- predict(m2, test)
+table(final_res,test$problem_id)
+```
+
+
+### Summary
+The random forest algorithm provides the best accuracy score for the provided data.
